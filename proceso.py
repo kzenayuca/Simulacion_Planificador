@@ -7,6 +7,7 @@ class Proceso:
         self.pid = pid
         self.nombre = nombre
         self.cpu_time = cpu_time
+        self.burst_time = cpu_time 
         self.arrival_time = arrival_time
         self.remaining_time = remaining_time
         self.cpu_id = cpu_id

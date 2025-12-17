@@ -42,7 +42,7 @@ class VisualizadorProcesos:
         self.priority_threshold = 5  # valor por encima o igual => alta prioridad
         self.default_rr_quantum = 1.0
 
-        # Crear interfaz mejorada
+        # Interfaz
         self._create_header()
         self._create_metrics_panel()
         self._create_table()
@@ -55,13 +55,11 @@ class VisualizadorProcesos:
         self.completed_info = {}
 
     def _create_header(self):
-        """Crear header moderno con gradiente"""
         header_frame = tk.Frame(self.root, bg=self.colors['bg_header'], height=30)
         header_frame.pack(fill=tk.X, pady=(0, 5))
         header_frame.pack_propagate(False)
 
     def _create_metrics_panel(self):
-        """Panel de métricas superior"""
         metrics_frame = tk.Frame(self.root, bg=self.colors['bg_primary'])
         metrics_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
 
@@ -104,7 +102,6 @@ class VisualizadorProcesos:
         table_frame = tk.Frame(self.root, bg=self.colors['bg_primary'])
         table_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
 
-        # Estilo personalizado para Treeview
         style = ttk.Style()
         try:
             style.theme_use('clam')
@@ -244,16 +241,10 @@ class VisualizadorProcesos:
         self.metric_processes.config(text=str(len(self.procesos)))
         self.metric_completed.config(text=str(len(self.completed_info)))
 
-    # ========== MÉTODOS ORIGINALES (CON ADAPTACIONES) ==========
-
     def agregar_proceso(self):
-        # Importaciones locales para asegurar que no falten
-        from random import uniform, randint
-        import time
-        
         ventana_agregar = tk.Toplevel(self.root)
         ventana_agregar.title("Agregar Proceso")
-        ventana_agregar.geometry("450x480")
+        ventana_agregar.geometry("450x500")
         ventana_agregar.configure(bg='white')
 
         # Header
@@ -268,7 +259,6 @@ class VisualizadorProcesos:
         content = tk.Frame(ventana_agregar, bg='white')
         content.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
 
-        # --- 1. CÁLCULO DE VALORES ---
         if self.procesos:
             next_pid = max(p.pid for p in self.procesos) + 1
         else:
@@ -278,10 +268,8 @@ class VisualizadorProcesos:
         default_cpu = f"{uniform(2.0, 8.0):.1f}" # Formato string con 1 decimal
         default_prio = str(randint(0, 10))
 
-        # DEBUG: Mira tu consola (la pantalla negra) al abrir la ventana
         print(f"DEBUG: Calculados -> PID:{next_pid}, Name:{default_name}, CPU:{default_cpu}")
 
-        # --- 2. CONFIGURACIÓN DE CAMPOS ---
         fields = [
             ("PID:", "entry_pid", str(next_pid)),
             ("Nombre:", "entry_nombre", default_name),
@@ -289,9 +277,9 @@ class VisualizadorProcesos:
             ("Priority (0-10):", "entry_priority", default_prio)
         ]
 
-        self.entry_widgets = {} # Usamos self para mantener referencias vivas
+        self.entry_widgets = {}
 
-        # --- 3. BUCLE DE CREACIÓN CON STRINGVAR ---
+        # BUCLE DE CREACIÓN CON STRINGVAR
         for label_text, entry_name, default_val in fields:
             tk.Label(
                 content, text=label_text, font=('Segoe UI', 11),
@@ -303,7 +291,7 @@ class VisualizadorProcesos:
             
             entry = tk.Entry(
                 content, 
-                textvariable=var_control,  # <--- AQUÍ ESTÁ EL CAMBIO CLAVE
+                textvariable=var_control,
                 font=('Segoe UI', 11), 
                 relief=tk.FLAT,
                 bg='#f7fafc', 
@@ -316,7 +304,6 @@ class VisualizadorProcesos:
 
         def guardar_proceso():
             try:
-                # Obtenemos los datos directamente de los widgets guardados
                 pid = int(self.entry_widgets['entry_pid'].get())
                 nombre = self.entry_widgets['entry_nombre'].get()
                 cpu_time = float(self.entry_widgets['entry_cpu_time'].get())
@@ -346,13 +333,10 @@ class VisualizadorProcesos:
         btn_guardar.focus_set()
 
     def importar_procesos(self):
-        # 1. Obtener lista temporal de todos los procesos con sus datos
         raw_procs = []
         try:
-            # Iteramos una vez para capturar datos
             for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'cpu_times']):
                 try:
-                    # Forzamos una lectura de CPU (psutil a veces requiere esto para actualizar)
                     p.cpu_percent(interval=None) 
                     raw_procs.append(p)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -365,7 +349,6 @@ class VisualizadorProcesos:
         # Usamos un valor por defecto 0.0 si no se puede leer
         raw_procs.sort(key=lambda p: p.info.get('cpu_percent') or 0.0, reverse=True)
 
-        # 3. SELECCIONAR solo el TOP 25
         top_procs = raw_procs[:25]
         
         count = 0
@@ -393,7 +376,7 @@ class VisualizadorProcesos:
                 else:
                     cpu_time = uniform(1.0, 5.0)
 
-                arrival_time = time.time()
+                arrival_time = self.sim_time if hasattr(self, 'sim_time') else 0.0
                 priority = randint(0, 10)
                 
                 nuevo_proceso = Proceso(pid, nombre, cpu_time, arrival_time, cpu_time, None, priority)
@@ -477,7 +460,7 @@ class VisualizadorProcesos:
     def configurar_cpus(self):
         ventana_config = tk.Toplevel(self.root)
         ventana_config.title("Configurar CPUs")
-        ventana_config.geometry("700x450")
+        ventana_config.geometry("700x530")
         ventana_config.configure(bg='white')
 
         # Header
@@ -560,21 +543,8 @@ class VisualizadorProcesos:
             except ValueError:
                 messagebox.showerror("Error", "Valores inválidos")
 
-        tk.Button(ventana_config, text="Guardar", command=guardar_configs, bg=self.colors['accent'], fg='white',
+        tk.Button(ventana_config, text="Guardar", command=lambda: [guardar_configs(), ventana_config.destroy()], bg=self.colors['accent'], fg='white',
                   font=('Segoe UI', 11, 'bold'), relief=tk.FLAT, cursor='hand2', padx=20, pady=10).pack(pady=8)
-
-        tk.Button(
-            ventana_config,
-            text="Cerrar",
-            command=ventana_config.destroy,
-            bg=self.colors['text_secondary'],
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
-            relief=tk.FLAT,
-            cursor='hand2',
-            padx=30,
-            pady=10
-        ).pack(pady=5)
 
     def configurar_algoritmo(self, cpu, algoritmo, quantum):
         cpu.algorithm = algoritmo
@@ -584,7 +554,7 @@ class VisualizadorProcesos:
     def abrir_config_rr(self, cpu):
         ventana_rr = tk.Toplevel(self.root)
         ventana_rr.title(f"Configurar Quantum - CPU {cpu.id}")
-        ventana_rr.geometry("400x250")
+        ventana_rr.geometry("400x290")
         ventana_rr.configure(bg='white')
 
         header = tk.Frame(ventana_rr, bg=self.colors['bg_header'], height=60)
@@ -647,7 +617,7 @@ class VisualizadorProcesos:
 
         self.sim_win = tk.Toplevel(self.root)
         self.sim_win.title("Simulación de Planificación en Vivo")
-        self.sim_win.geometry("1400x900")
+        self.sim_win.geometry("1400x1000")
         self.sim_win.configure(bg=self.colors['bg_primary'])
 
         # Header
@@ -864,7 +834,16 @@ class VisualizadorProcesos:
                     if current.remaining_time <= 1e-9:
                         finish_time = self.sim_time
                         turnaround = finish_time - current.arrival_time
-                        waiting = turnaround - current.cpu_time
+                        waiting = turnaround - current.burst_time
+
+                        print(f"\n=== Proceso {current.pid} completado ===")
+                        print(f"sim_time (finish): {finish_time}")
+                        print(f"arrival_time: {current.arrival_time}")
+                        print(f"burst_time: {current.burst_time}")
+                        print(f"turnaround: {turnaround}")
+                        print(f"waiting: {waiting}")
+                        print(f"=====================================\n")
+
                         self.completed_info[current.pid] = {
                             'completion': finish_time,
                             'turnaround': turnaround,
