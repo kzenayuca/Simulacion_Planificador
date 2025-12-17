@@ -247,6 +247,10 @@ class VisualizadorProcesos:
     # ========== MÉTODOS ORIGINALES (CON ADAPTACIONES) ==========
 
     def agregar_proceso(self):
+        # Importaciones locales para asegurar que no falten
+        from random import uniform, randint
+        import time
+        
         ventana_agregar = tk.Toplevel(self.root)
         ventana_agregar.title("Agregar Proceso")
         ventana_agregar.geometry("450x480")
@@ -257,104 +261,151 @@ class VisualizadorProcesos:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         tk.Label(
-            header,
-            text="➕ Nuevo Proceso",
-            font=('Segoe UI', 16, 'bold'),
-            bg=self.colors['bg_header'],
-            fg='white'
+            header, text="➕ Nuevo Proceso", font=('Segoe UI', 16, 'bold'),
+            bg=self.colors['bg_header'], fg='white'
         ).pack(pady=15)
 
-        # Contenido
         content = tk.Frame(ventana_agregar, bg='white')
         content.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
 
+        # --- 1. CÁLCULO DE VALORES ---
+        if self.procesos:
+            next_pid = max(p.pid for p in self.procesos) + 1
+        else:
+            next_pid = 1
+            
+        default_name = f"Proceso_{next_pid}"
+        default_cpu = f"{uniform(2.0, 8.0):.1f}" # Formato string con 1 decimal
+        default_prio = str(randint(0, 10))
+
+        # DEBUG: Mira tu consola (la pantalla negra) al abrir la ventana
+        print(f"DEBUG: Calculados -> PID:{next_pid}, Name:{default_name}, CPU:{default_cpu}")
+
+        # --- 2. CONFIGURACIÓN DE CAMPOS ---
         fields = [
-            ("PID:", "entry_pid"),
-            ("Nombre:", "entry_nombre"),
-            ("CPU Time:", "entry_cpu_time"),
-            ("Priority (0-10):", "entry_priority")
+            ("PID:", "entry_pid", str(next_pid)),
+            ("Nombre:", "entry_nombre", default_name),
+            ("CPU Time (s):", "entry_cpu_time", default_cpu),
+            ("Priority (0-10):", "entry_priority", default_prio)
         ]
 
-        entries = {}
-        for label_text, entry_name in fields:
+        self.entry_widgets = {} # Usamos self para mantener referencias vivas
+
+        # --- 3. BUCLE DE CREACIÓN CON STRINGVAR ---
+        for label_text, entry_name, default_val in fields:
             tk.Label(
-                content,
-                text=label_text,
-                font=('Segoe UI', 11),
-                bg='white',
-                fg=self.colors['text_primary']
+                content, text=label_text, font=('Segoe UI', 11),
+                bg='white', fg=self.colors['text_primary']
             ).pack(anchor='w', pady=(10, 2))
 
+            # USAMOS STRINGVAR: Esto "ata" el valor al campo de texto fuertemente
+            var_control = tk.StringVar(value=default_val)
+            
             entry = tk.Entry(
-                content,
-                font=('Segoe UI', 11),
+                content, 
+                textvariable=var_control,  # <--- AQUÍ ESTÁ EL CAMBIO CLAVE
+                font=('Segoe UI', 11), 
                 relief=tk.FLAT,
-                bg='#f7fafc',
+                bg='#f7fafc', 
                 fg=self.colors['text_primary'],
                 insertbackground=self.colors['bg_button']
             )
             entry.pack(fill=tk.X, ipady=8, pady=(0, 5))
-            entries[entry_name] = entry
+            
+            self.entry_widgets[entry_name] = entry
 
         def guardar_proceso():
             try:
-                pid = int(entries['entry_pid'].get())
-                nombre = entries['entry_nombre'].get() or f"proc{pid}"
-                cpu_time = float(entries['entry_cpu_time'].get())
-                arrival_time = time.time()
-                remaining_time = cpu_time
-                priority = int(entries['entry_priority'].get())
-                priority = max(0, min(10, priority))
-
+                # Obtenemos los datos directamente de los widgets guardados
+                pid = int(self.entry_widgets['entry_pid'].get())
+                nombre = self.entry_widgets['entry_nombre'].get()
+                cpu_time = float(self.entry_widgets['entry_cpu_time'].get())
+                priority = int(self.entry_widgets['entry_priority'].get())
+                
                 if any(p.pid == pid for p in self.procesos):
-                    messagebox.showwarning("Advertencia", "PID ya existe en la lista de procesos.")
+                    messagebox.showwarning("Error", f"El PID {pid} ya existe.")
                     return
-                nuevo_proceso = Proceso(pid, nombre, cpu_time, arrival_time, remaining_time, None, priority)
-                self.procesos.append(nuevo_proceso)
+
+                nuevo = Proceso(pid, nombre, cpu_time, time.time(), cpu_time, None, priority)
+                self.procesos.append(nuevo)
                 self.actualizar_tabla()
                 ventana_agregar.destroy()
-                messagebox.showinfo("Éxito", "Proceso agregado correctamente")
+                print(f"DEBUG: Proceso {nombre} guardado correctamente.")
+                
             except ValueError:
-                messagebox.showerror("Error", "Datos inválidos. Por favor, revise los campos.")
+                messagebox.showerror("Error", "Revise que los números sean válidos.")
 
         btn_guardar = tk.Button(
-            content,
-            text="Guardar Proceso",
-            command=guardar_proceso,
-            bg=self.colors['accent'],
-            fg='white',
-            font=('Segoe UI', 11, 'bold'),
-            relief=tk.FLAT,
-            cursor='hand2',
-            padx=20,
-            pady=12
+            content, text="Guardar Proceso", command=guardar_proceso,
+            bg=self.colors['accent'], fg='white', font=('Segoe UI', 11, 'bold'),
+            relief=tk.FLAT, cursor='hand2', padx=20, pady=12
         )
         btn_guardar.pack(pady=20)
+        
+        ventana_agregar.bind('<Return>', lambda event: guardar_proceso())
+        btn_guardar.focus_set()
 
     def importar_procesos(self):
-        existing_pids = {p.pid for p in self.procesos}
+        # 1. Obtener lista temporal de todos los procesos con sus datos
+        raw_procs = []
+        try:
+            # Iteramos una vez para capturar datos
+            for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'cpu_times']):
+                try:
+                    # Forzamos una lectura de CPU (psutil a veces requiere esto para actualizar)
+                    p.cpu_percent(interval=None) 
+                    raw_procs.append(p)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            print(f"Error leyendo procesos: {e}")
+
+        # 2. ORDENAR por uso de CPU (descendente)
+        # Queremos ver los que están haciendo algo, no los que están en 0%
+        # Usamos un valor por defecto 0.0 si no se puede leer
+        raw_procs.sort(key=lambda p: p.info.get('cpu_percent') or 0.0, reverse=True)
+
+        # 3. SELECCIONAR solo el TOP 25
+        top_procs = raw_procs[:25]
+        
         count = 0
-        for p in psutil.process_iter(['pid', 'name', 'cpu_times']):
+        existing_pids = {p.pid for p in self.procesos}
+
+        for p in top_procs:
             try:
                 pid = p.info['pid']
                 if pid in existing_pids:
                     continue
+                
                 nombre = p.info.get('name') or f"proc{pid}"
+                
+                # Calcular tiempo de ráfaga
                 ct = p.info.get('cpu_times')
-                cpu_time = (ct.user + ct.system) if ct else uniform(0.5, 2.0)
+                if ct:
+                    # Si el proceso real tiene tiempo acumulado, usamos una fracción
+                    # para que no sea infinito en la simulación
+                    raw_time = (ct.user + ct.system)
+                    # Truco: Si es muy grande, lo limitamos a algo visible (ej. entre 2 y 8 seg)
+                    if raw_time > 10:
+                        cpu_time = uniform(4.0, 12.0)
+                    else:
+                        cpu_time = max(1.0, raw_time)
+                else:
+                    cpu_time = uniform(1.0, 5.0)
+
                 arrival_time = time.time()
-                remaining_time = cpu_time
-                # Asignar prioridad aleatoria 0-10 al importar
                 priority = randint(0, 10)
-                nuevo_proceso = Proceso(pid, nombre, cpu_time, arrival_time, remaining_time, None, priority)
+                
+                nuevo_proceso = Proceso(pid, nombre, cpu_time, arrival_time, cpu_time, None, priority)
                 self.procesos.append(nuevo_proceso)
                 existing_pids.add(pid)
                 count += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                
+            except Exception:
                 continue
 
         self.actualizar_tabla()
-        messagebox.showinfo("Importación", f"Se importaron {count} procesos del sistema")
+        messagebox.showinfo("Importación Inteligente", f"Se importaron los {count} procesos más activos del sistema.") 
 
     def eliminar_proceso(self):
         seleccion = self.tree.selection()
@@ -370,9 +421,10 @@ class VisualizadorProcesos:
         self.actualizar_tabla()
         messagebox.showinfo("Éxito", "Proceso eliminado correctamente")
 
-    def asignar_procesos_a_cpus(self):
+    def asignar_procesos_a_cpus(self, silent=False): # <--- 1. Agregamos parámetro
         if not self.procesos:
-            messagebox.showwarning("Advertencia", "No hay procesos para asignar.")
+            if not silent: # Solo mostrar error si es manual
+                messagebox.showwarning("Advertencia", "No hay procesos para asignar.")
             return
 
         # 1) limpiar CPUs
@@ -380,26 +432,26 @@ class VisualizadorProcesos:
             cpu.limpiar_procesos()
         self.assigned_pids.clear()
 
-        # 2) construir colas globales
-        # Solo consideramos procesos no asignados???
-        unassigned = [p for p in self.procesos if p.pid not in self.assigned_pids]
-        self.high_queue = [p for p in unassigned if p.priority >= self.priority_threshold]
-        # mantener orden por arrival
+        # 2) construir colas globales (Consideramos todos los procesos actuales)
+        # Nota: Al reasignar, tomamos todos para redistribuir carga
+        self.high_queue = [p for p in self.procesos if p.priority >= self.priority_threshold]
         self.high_queue.sort(key=lambda p: p.arrival_time)
-        self.low_queue = [p for p in unassigned if p.priority < self.priority_threshold]
+        
+        self.low_queue = [p for p in self.procesos if p.priority < self.priority_threshold]
         self.low_queue.sort(key=lambda p: p.arrival_time)
 
-        # 3) asignar high priority (RR) por rondas a las CPUs jhbjk
+        # 3) asignar high priority (RR)
         cpu_count = len(self.cpus)
         idx = 0
         while self.high_queue:
             proceso = self.high_queue.pop(0)
             cpu = self.cpus[idx % cpu_count]
             cpu.asignar_proceso(proceso)
-            # Forzar algoritmo RR en esa CPU para este conjunto
+            
             cpu.algorithm = "Round Robin"
             if cpu.quantum is None:
                 cpu.quantum = self.default_rr_quantum
+            
             proceso.cpu_id = cpu.id
             self.assigned_pids.add(proceso.pid)
             idx += 1
@@ -410,13 +462,17 @@ class VisualizadorProcesos:
             proceso = self.low_queue.pop(0)
             cpu = self.cpus[idx % cpu_count]
             cpu.asignar_proceso(proceso)
+            
             if cpu.algorithm != "Round Robin":
                 cpu.algorithm = "FCFS"
+            
             proceso.cpu_id = cpu.id
             self.assigned_pids.add(proceso.pid)
             idx += 1
 
-        messagebox.showinfo("Asignación", "Procesos asignados a las CPUs usando Multinivel (High->RR, Low->FCFS)")
+        # --- 2. EL CAMBIO CLAVE ESTÁ AQUÍ ---
+        if not silent:
+            messagebox.showinfo("Asignación", "Procesos asignados a las CPUs correctamente.")
 
     def configurar_cpus(self):
         ventana_config = tk.Toplevel(self.root)
@@ -748,10 +804,14 @@ class VisualizadorProcesos:
         self.metric_status.config(text="Detenido")
 
     def _assign_new_processes(self):
+        # Detectar si hay procesos en la lista que no están en el set de asignados
         unassigned = [p for p in self.procesos if p.pid not in self.assigned_pids]
+        
         if not unassigned:
             return
-        self.asignar_procesos_a_cpus()
+
+        # Llamamos a la asignación en modo SILENCIOSO para no interrumpir la simulación
+        self.asignar_procesos_a_cpus(silent=True)
 
     def _simulation_loop(self):
         # Este hilo se encarga de la lógica----------- cualquier actualización de GUI se hace con root.after
@@ -844,25 +904,50 @@ class VisualizadorProcesos:
                                     pass
                         # En FCFS o SJF no preemption (tal como está diseñado)
 
-                # Programar GUI update en hilo principal
-                self.root.after(0, self._gui_update)
+                # Usamos un contador simple para actualizar la GUI 1 de cada 3 ticks
+                if not hasattr(self, '_frame_skip'): self._frame_skip = 0
+                self._frame_skip += 1
+                
+                if self._frame_skip >= 3: # Ajusta a 5 si sigue lento
+                    self.root.after(0, self._gui_update)
+                    self._frame_skip = 0
 
             # ritmo de la simulación
             time.sleep(self.sim_tick)
 
     def _append_gantt_segment(self, cpu_id, pid, start, duration):
-        # Si el último segmento es del mismo pid y cpu, agrupar
-        if self.gantt_segments and self.gantt_segments[-1]["cpu_id"] == cpu_id and self.gantt_segments[-1]["pid"] == pid:
-            self.gantt_segments[-1]["duration"] += duration
-        else:
-            color = "#4a90e2" if duration * 10 > 4 else "#f5d76e"
-            self.gantt_segments.append({
-                'cpu_id': cpu_id,
-                'pid': pid,
-                'start': start,
-                'duration': duration,
-                'color': color
-            })
+            # Generar color consistente basado en el PID (Hash visual)
+            # Esto asegura que el P1 siempre sea del mismo color, P2 de otro, etc.
+            import hashlib
+            hash_obj = hashlib.md5(str(pid).encode())
+            hex_color = '#' + hash_obj.hexdigest()[:6]
+            
+            # Intentar fusionar con el último segmento DE ESTA MISMA CPU
+            merged = False
+            # Miramos los últimos 4 segmentos (porque tienes 4 CPUs)
+            limit = min(len(self.gantt_segments), 10) 
+            
+            for i in range(1, limit + 1):
+                idx = -i
+                seg = self.gantt_segments[idx]
+                
+                if seg['cpu_id'] == cpu_id:
+                    # Es mi CPU. ¿Es mi mismo proceso y es contiguo?
+                    # Usamos una tolerancia de 0.05s para errores de flotante
+                    ends_at = seg['start'] + seg['duration']
+                    if seg['pid'] == pid and abs(ends_at - start) < 0.05:
+                        self.gantt_segments[idx]['duration'] += duration
+                        merged = True
+                    break # Encontré mi CPU, dejo de buscar
+            
+            if not merged:
+                self.gantt_segments.append({
+                    'cpu_id': cpu_id,
+                    'pid': pid,
+                    'start': start,
+                    'duration': duration,
+                    'color': hex_color # Usamos el color único generado
+                })
 
     def _gui_update(self):
         # Actualizar labels y colas por CPU
@@ -890,30 +975,84 @@ class VisualizadorProcesos:
 
         # también actualizar la tabla principal
         self.actualizar_tabla()
-
     def _draw_gantt(self):
-        # Limpia y dibuja los segmentos según self.gantt_segments
         self.gantt_canvas.delete("all")
-        x_start = 50
-        y_base = 50
-        scale = 40  # pixels por segundo (ajustable)
-        height = 30
+        
+        # --- CONFIGURACIÓN DE ZOOM ---
+        window_size = 20.0  # <--- HE BAJADO ESTO A 20s PARA QUE SE VEA MÁS GRANDE
+        current_time = self.sim_time
+        start_visible_time = max(0.0, current_time - window_size)
+        
+        # Configuración visual
+        x_start, y_base = 60, 40
+        row_height = 50     # <--- MÁS ALTO PARA QUE RESPIRE
+        bar_height = 30     # <--- ALTURA DE LA BARRA
+        
+        canvas_width = self.gantt_canvas.winfo_width()
+        if canvas_width <= 1: canvas_width = 800 
+        scale = (canvas_width - x_start - 20) / window_size
 
-        # dibuja eje temporal
-        self.gantt_canvas.create_line(x_start, y_base - 20, x_start + 1000, y_base - 20, fill="gray")
-
-        for seg in self.gantt_segments:
-            cpu_row = seg['cpu_id'] - 1
-            x1 = x_start + seg['start'] * scale
-            x2 = x1 + seg['duration'] * scale
-            y1 = y_base + cpu_row * (height + 20)
-            y2 = y1 + height
-            self.gantt_canvas.create_rectangle(x1, y1, x2, y2, fill=seg['color'], outline='black')
-            self.gantt_canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=f"P{seg['pid']}")
-
-        # dibujar etiquetas CPU a la izquierda
+        # 1. Etiquetas CPU
         for i, cpu in enumerate(self.cpus):
-            self.gantt_canvas.create_text(10, y_base + i * (height + 20) + height / 2, text=f"CPU {cpu.id}", anchor="w")
+            y_pos = y_base + i * row_height
+            # Fondo de la fila
+            self.gantt_canvas.create_rectangle(0, y_pos, canvas_width, y_pos + row_height, fill="#f8f9fa", outline="")
+            # Texto
+            self.gantt_canvas.create_text(30, y_pos + row_height/2, text=f"CPU {cpu.id}", font=('Segoe UI', 9, 'bold'))
+            # Línea divisoria
+            self.gantt_canvas.create_line(x_start, y_pos + row_height, canvas_width, y_pos + row_height, fill="#e2e8f0")
+
+        # 2. Regla de Tiempo
+        time_step = 2 # Marcas cada 2 segundos
+        first_tick = int(start_visible_time // time_step) * time_step
+        for t in range(first_tick, int(current_time) + time_step + 1, time_step):
+            if t < start_visible_time: continue
+            x_pos = x_start + (t - start_visible_time) * scale
+            if x_pos > canvas_width: break
+            
+            self.gantt_canvas.create_line(x_pos, y_base, x_pos, y_base + (len(self.cpus)*row_height), fill="#cbd5e0", dash=(2,4))
+            self.gantt_canvas.create_text(x_pos, y_base - 15, text=f"{t}s", font=('Segoe UI', 8))
+
+        # 3. Segmentos visibles
+        for seg in self.gantt_segments:
+            seg_end = seg['start'] + seg['duration']
+            if seg_end < start_visible_time: continue
+            if seg['start'] > current_time: break
+
+            draw_start = max(seg['start'], start_visible_time)
+            draw_end = min(seg_end, current_time)
+            
+            x1 = x_start + (draw_start - start_visible_time) * scale
+            x2 = x_start + (draw_end - start_visible_time) * scale
+            
+            if x2 - x1 < 1: continue
+
+            # Centrar la barra en la fila
+            y_center = y_base + (seg['cpu_id'] - 1) * row_height + (row_height/2)
+            y1 = y_center - (bar_height/2)
+            y2 = y_center + (bar_height/2)
+
+            # --- DIBUJAR CON BORDE NEGRO ---
+            self.gantt_canvas.create_rectangle(
+                x1, y1, x2, y2, 
+                fill=seg['color'], 
+                outline='black',  # <--- ESTO DA EL EFECTO DE BLOQUE SÓLIDO
+                width=1
+            )
+            
+            # Texto PID (Solo si cabe)
+            if x2 - x1 > 25:
+                # Color de texto inteligente (blanco o negro según brillo)
+                self.gantt_canvas.create_text(
+                    (x1 + x2) / 2, y_center, 
+                    text=f"P{seg['pid']}", 
+                    font=('Segoe UI', 8, 'bold'), 
+                    fill="white" # Simplificado a blanco con sombra negra si quieres
+                )
+
+        # 4. Línea "Ahora"
+        now_x = x_start + (current_time - start_visible_time) * scale
+        self.gantt_canvas.create_line(now_x, y_base - 10, now_x, y_base + (len(self.cpus)*row_height), fill="#e53e3e", width=2) 
 
     # ------------------------- utilidades limpiado -------------------------
     def close(self):
